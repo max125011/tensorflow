@@ -39,7 +39,9 @@ cuda_py_test(
         "//tensorflow/python:framework_test_lib",
     ],
     tags = [
+        "no-internal-py3",  # flaky
         "no_cuda_on_cpu_tap",
         "no_pip",  # because spinn.py is under third_party/.
+        "oss_serial",
     ],
 )

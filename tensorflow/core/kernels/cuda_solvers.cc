@@ -35,8 +35,6 @@
 #include "tensorflow/core/platform/stream_executor.h"
 #include "tensorflow/core/platform/types.h"
 
-using ::perftools::gputools::cuda::ScopedActivateExecutorContext;
-
 // The CUDA cublas_api.h API contains const-correctness errors. Instead of
 // casting away constness on our data, we instead reinterpret the CuBLAS
 // functions as what they were clearly meant to be, and thus we can call
@@ -80,10 +78,12 @@ using matinv_Z = cublasStatus_t(cublasContext*, int, const double2* const*, int,
 namespace tensorflow {
 namespace {
 
+using se::cuda::ScopedActivateExecutorContext;
+
 inline bool CopyHostToDevice(OpKernelContext* context, void* dst,
                              const void* src, uint64 bytes) {
   auto stream = context->op_device_context()->stream();
-  perftools::gputools::DeviceMemoryBase wrapped_dst(dst);
+  se::DeviceMemoryBase wrapped_dst(dst);
   return stream->ThenMemcpy(&wrapped_dst, src, bytes).ok();
 }
 
@@ -151,7 +151,7 @@ CudaSolver::CudaSolver(OpKernelContext* context) : context_(context) {
       reinterpret_cast<const cudaStream_t*>(context->op_device_context()
                                                 ->stream()
                                                 ->implementation()
-                                                ->CudaStreamMemberHack()));
+                                                ->GpuStreamMemberHack()));
   cuda_stream_ = *cu_stream_ptr;
   HandleMap* handle_map = CHECK_NOTNULL(GetHandleMapSingleton());
   auto it = handle_map->find(cuda_stream_);
@@ -692,8 +692,8 @@ static inline Status GetrsBatchedImpl(
     SolverFnT solver, CudaSolver* cuda_solver, OpKernelContext* context,
     cublasHandle_t cublas_handle, cublasOperation_t trans, int n, int nrhs,
     const Scalar* const host_a_dev_ptrs[], int lda, const int* dev_pivots,
-    const Scalar* const host_b_dev_ptrs[], int ldb,
-    DeviceLapackInfo* dev_lapack_info, int batch_size) {
+    const Scalar* const host_b_dev_ptrs[], int ldb, int* host_lapack_info,
+    int batch_size) {
   mutex_lock lock(handle_map_mutex);
   using CudaScalar = typename CUDAComplexT<Scalar>::type;
   ScratchSpace<uint8> dev_a_dev_ptrs =
@@ -714,7 +714,7 @@ static inline Status GetrsBatchedImpl(
       cublas_handle, trans, n, nrhs,
       reinterpret_cast<const CudaScalar* const*>(dev_a_dev_ptrs.data()), lda,
       dev_pivots, reinterpret_cast<CudaScalar**>(dev_b_dev_ptrs.mutable_data()),
-      ldb, dev_lapack_info->mutable_data(), batch_size));
+      ldb, host_lapack_info, batch_size));
   return Status::OK();
 }
 
@@ -723,13 +723,13 @@ static inline Status GetrsBatchedImpl(
   Status CudaSolver::GetrsBatched(                                             \
       cublasOperation_t trans, int n, int nrhs,                                \
       const Scalar* const host_a_dev_ptrs[], int lda, const int* dev_pivots,   \
-      const Scalar* const host_b_dev_ptrs[], int ldb,                          \
-      DeviceLapackInfo* dev_lapack_info, int batch_size) {                     \
+      const Scalar* const host_b_dev_ptrs[], int ldb, int* host_lapack_info,   \
+      int batch_size) {                                                        \
     return GetrsBatchedImpl(reinterpret_cast<getrs_##type_prefix*>(            \
                                 BLAS_SOLVER_FN(getrsBatched, type_prefix)),    \
                             this, context_, cublas_handle_, trans, n, nrhs,    \
                             host_a_dev_ptrs, lda, dev_pivots, host_b_dev_ptrs, \
-                            ldb, dev_lapack_info, batch_size);                 \
+                            ldb, host_lapack_info, batch_size);                \
   }
 
 TF_CALL_LAPACK_TYPES(GETRS_BATCHED_INSTANCE);

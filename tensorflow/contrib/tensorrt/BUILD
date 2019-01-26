@@ -3,7 +3,7 @@
 #   and provide TensorRT operators and converter package.
 #   APIs are meant to change over time.
 
-package(default_visibility = ["//tensorflow:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])  # Apache 2.0
 
@@ -11,54 +11,21 @@ exports_files(["LICENSE"])
 
 load(
     "//tensorflow:tensorflow.bzl",
-    "tf_cc_test",
     "tf_copts",
     "tf_cuda_library",
-    "tf_custom_op_library",
     "tf_custom_op_library_additional_deps",
-    "tf_gen_op_libs",
-    "tf_gen_op_wrapper_py",
 )
-load("//tensorflow:tensorflow.bzl", "tf_cuda_cc_test")
-load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
+load("//tensorflow:tensorflow.bzl", "cuda_py_test")
+load("//tensorflow:tensorflow.bzl", "cuda_py_tests")
 load("//tensorflow:tensorflow.bzl", "tf_py_wrap_cc")
 load(
     "@local_config_tensorrt//:build_defs.bzl",
     "if_tensorrt",
 )
 
-tf_cuda_cc_test(
-    name = "tensorrt_test_cc",
-    size = "small",
-    srcs = ["tensorrt_test.cc"],
-    tags = [
-        "manual",
-        "notap",
-    ],
-    deps = [
-        "//tensorflow/core:lib",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ] + if_tensorrt([
-        "@local_config_cuda//cuda:cuda_headers",
-        "@local_config_tensorrt//:nv_infer",
-    ]),
-)
-
-tf_custom_op_library(
-    name = "python/ops/_trt_engine_op.so",
-    srcs = [
-        "ops/trt_calib_op.cc",
-        "ops/trt_engine_op.cc",
-    ],
-    deps = [
-        ":trt_engine_op_kernel",
-        ":trt_shape_function",
-        "//tensorflow/core:lib_proto_parsing",
-    ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]),
-)
+exports_files(glob([
+    "test/testdata/*",
+]))
 
 tf_cuda_library(
     name = "trt_shape_function",
@@ -66,83 +33,11 @@ tf_cuda_library(
     hdrs = ["shape_fn/trt_shfn.h"],
     visibility = ["//visibility:public"],
     deps = [
-        ":trt_logging",
+        "//tensorflow/compiler/tf2tensorrt:trt_logging",
+        "//tensorflow/compiler/tf2tensorrt:trt_plugins",
     ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
+        "@local_config_tensorrt//:tensorrt",
     ]) + tf_custom_op_library_additional_deps(),
-)
-
-cc_library(
-    name = "trt_engine_op_kernel",
-    srcs = [
-        "kernels/trt_calib_op.cc",
-        "kernels/trt_engine_op.cc",
-    ],
-    hdrs = [
-        "kernels/trt_calib_op.h",
-        "kernels/trt_engine_op.h",
-    ],
-    copts = tf_copts(),
-    visibility = ["//visibility:public"],
-    deps = [
-        ":trt_logging",
-        ":trt_resources",
-        "//tensorflow/core:gpu_headers_lib",
-        "//tensorflow/core:lib_proto_parsing",
-        "//tensorflow/core:stream_executor_headers_lib",
-    ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]) + tf_custom_op_library_additional_deps(),
-    # TODO(laigd)
-    alwayslink = 1,  # buildozer: disable=alwayslink-with-hdrs
-)
-
-tf_gen_op_libs(
-    op_lib_names = [
-        "trt_engine_op",
-        "trt_calib_op",
-    ],
-    deps = if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]),
-)
-
-tf_cuda_library(
-    name = "trt_logging",
-    srcs = ["log/trt_logger.cc"],
-    hdrs = ["log/trt_logger.h"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//tensorflow/core:lib_proto_parsing",
-    ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]),
-)
-
-tf_gen_op_wrapper_py(
-    name = "trt_engine_op",
-    gen_locally = True,
-    deps = [
-        ":trt_calib_op_op_lib",
-        ":trt_engine_op_op_lib",
-        ":trt_logging",
-        ":trt_shape_function",
-    ],
-)
-
-tf_custom_op_py_library(
-    name = "trt_engine_op_loader",
-    srcs = ["python/ops/trt_engine_op.py"],
-    dso = [
-        ":python/ops/_trt_engine_op.so",
-    ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]),
-    srcs_version = "PY2AND3",
-    deps = [
-        "//tensorflow/python:framework_for_generated_wrappers",
-        "//tensorflow/python:resources",
-    ],
 )
 
 py_library(
@@ -153,6 +48,7 @@ py_library(
     ],
     srcs_version = "PY2AND3",
     deps = [
+        ":tf_trt_integration_test_base",
         ":trt_convert_py",
         ":trt_ops_py",
         "//tensorflow/python:errors",
@@ -163,8 +59,8 @@ py_library(
     name = "trt_ops_py",
     srcs_version = "PY2AND3",
     deps = [
-        ":trt_engine_op",
-        ":trt_engine_op_loader",
+        "//tensorflow/compiler/tf2tensorrt:trt_ops",
+        "//tensorflow/compiler/tf2tensorrt:trt_ops_loader",
     ],
 )
 
@@ -174,113 +70,144 @@ py_library(
     srcs_version = "PY2AND3",
     deps = [
         ":wrap_conversion",
+        "//tensorflow/python:graph_util",
+        "//tensorflow/python:session",
+        "//tensorflow/python:tf_optimizer",
+        "//tensorflow/python/saved_model:builder",
+        "//tensorflow/python/saved_model:loader",
+        "//tensorflow/python/saved_model:tag_constants",
     ],
 )
 
+# TODO(aaroey): this wrapper has been causing troubles of double linking, so
+# either get rid of it, or split to make it contain minimum dependencies.
 tf_py_wrap_cc(
     name = "wrap_conversion",
     srcs = ["trt_conversion.i"],
     copts = tf_copts(),
+    swig_includes = [
+        "//tensorflow/python:platform/base.i",
+    ],
     deps = [
-        ":trt_conversion",
-        "//tensorflow/core:framework_lite",
-        "//util/python:python_headers",
+        "//tensorflow/compiler/tf2tensorrt:test_utils",
+        "//tensorflow/compiler/tf2tensorrt:trt_conversion",
+        "//tensorflow/compiler/tf2tensorrt:trt_op_kernels",
+        "//third_party/python_runtime:headers",
     ],
 )
 
-tf_cuda_library(
-    name = "trt_resources",
+py_library(
+    name = "tf_trt_integration_test_base",
+    srcs = ["test/tf_trt_integration_test_base.py"],
+    deps = [
+        ":trt_convert_py",
+        ":trt_ops_py",
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:framework_test_lib",
+    ],
+)
+
+cuda_py_test(
+    name = "trt_convert_test",
+    srcs = ["python/trt_convert_test.py"],
+    additional_deps = [
+        ":trt_convert_py",
+        ":trt_ops_py",
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:framework_test_lib",
+        "//tensorflow/python:graph_util",
+        "//tensorflow/python/saved_model:builder",
+        "//tensorflow/python/saved_model:loader",
+        "//tensorflow/python/saved_model:signature_constants",
+        "//tensorflow/python/saved_model:signature_def_utils",
+        "//tensorflow/python/saved_model:tag_constants",
+        "//tensorflow/python/saved_model:utils",
+        "//tensorflow/python/tools:freeze_graph_lib",
+        "//tensorflow/python/tools:saved_model_utils",
+    ],
+    tags = [
+        "no_cuda_on_cpu_tap",
+        "no_windows",
+        "nomac",
+    ],
+)
+
+cuda_py_tests(
+    name = "tf_trt_integration_test",
     srcs = [
-        "resources/trt_int8_calibrator.cc",
-        "resources/trt_resource_manager.cc",
+        "test/base_test.py",
+        "test/batch_matmul_test.py",
+        "test/biasadd_matmul_test.py",
+        "test/binary_tensor_weight_broadcast_test.py",
+        "test/concatenation_test.py",
+        "test/const_broadcast_test.py",
+        "test/conv2d_test.py",
+        "test/dynamic_input_shapes_test.py",
+        "test/identity_output_test.py",
+        "test/int32_test.py",
+        "test/lru_cache_test.py",
+        "test/manual_test.py",
+        "test/memory_alignment_test.py",
+        "test/multi_connection_neighbor_engine_test.py",
+        "test/neighboring_engine_test.py",
+        "test/quantization_test.py",
+        "test/rank_two_test.py",
+        "test/reshape_transpose_test.py",
+        "test/topk_test.py",
+        "test/unary_test.py",
+        "test/vgg_block_nchw_test.py",
+        "test/vgg_block_test.py",
     ],
-    hdrs = [
-        "resources/trt_int8_calibrator.h",
-        "resources/trt_resource_manager.h",
-        "resources/trt_resources.h",
+    additional_deps = [
+        ":tf_trt_integration_test_base",
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:framework_test_lib",
     ],
-    deps = [
-        ":trt_logging",
-        "//tensorflow/core:framework_headers_lib",
-        "//tensorflow/core:framework_lite",
-        "//tensorflow/core:lib_proto_parsing",
-    ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]),
+    tags = [
+        "no_cuda_on_cpu_tap",
+        "no_windows",
+        "nomac",
+    ],
 )
 
-# Library for the node-level conversion portion of TensorRT operation creation
-tf_cuda_library(
+cuda_py_test(
+    name = "quantization_mnist_test",
+    srcs = ["test/quantization_mnist_test.py"],
+    additional_deps = [
+        ":tf_trt_integration_test_base",
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:framework_test_lib",
+        "//tensorflow/python/keras:keras",
+        "//tensorflow/python/estimator:estimator",
+    ],
+    data = [
+        "test/testdata/checkpoint",
+        "test/testdata/model.ckpt-46900.data-00000-of-00001",
+        "test/testdata/model.ckpt-46900.index",
+    ],
+    tags = [
+        "no_cuda_on_cpu_tap",
+        "no_pip",
+        "no_tap",  # It is not able to download the mnist data.
+        "no_windows",
+        "nomac",
+    ],
+)
+
+# The following rules forward the libraries that were moved in order to not
+# break other internal targets.
+
+alias(
     name = "trt_conversion",
-    srcs = [
-        "convert/convert_graph.cc",
-        "convert/convert_nodes.cc",
-    ],
-    hdrs = [
-        "convert/convert_graph.h",
-        "convert/convert_nodes.h",
-    ],
-    deps = [
-        ":segment",
-        ":trt_logging",
-        ":trt_resources",
-        "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/core/grappler:utils",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:framework_lite",
-        "//tensorflow/core:graph",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core/grappler:devices",
-        "//tensorflow/core/grappler/clusters:virtual_cluster",
-        "//tensorflow/core/grappler/costs:graph_properties",
-        "//tensorflow/core/grappler/optimizers:constant_folding",
-        "//tensorflow/core/grappler/optimizers:layout_optimizer",
-    ] + if_tensorrt([
-        "@local_config_tensorrt//:nv_infer",
-    ]) + tf_custom_op_library_additional_deps(),
+    actual = "//tensorflow/compiler/tf2tensorrt:trt_conversion",
 )
 
-# Library for the segmenting portion of TensorRT operation creation
-cc_library(
-    name = "segment",
-    srcs = ["segment/segment.cc"],
-    hdrs = [
-        "segment/segment.h",
-        "segment/union_find.h",
-    ],
-    linkstatic = 1,
-    deps = [
-        "//tensorflow/core:graph",
-        "//tensorflow/core:lib_proto_parsing",
-        "//tensorflow/core:protos_all_cc",
-        "@protobuf_archive//:protobuf_headers",
-    ],
+alias(
+    name = "trt_op_kernels",
+    actual = "//tensorflow/compiler/tf2tensorrt:trt_op_kernels",
 )
 
-tf_cc_test(
-    name = "segment_test",
-    size = "small",
-    srcs = ["segment/segment_test.cc"],
-    deps = [
-        ":segment",
-        "//tensorflow/c:c_api",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core:test",
-        "//tensorflow/core:test_main",
-    ],
-)
-
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
-    visibility = ["//tensorflow:__subpackages__"],
+alias(
+    name = "trt_engine_op_op_lib",
+    actual = "//tensorflow/compiler/tf2tensorrt:trt_engine_op_op_lib",
 )

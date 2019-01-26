@@ -132,7 +132,7 @@ struct GCluster {
 
 static GCluster TF_NewCluster(bool allow_soft_placement,
                    bool disable_detailed_stats, TF_Status* out_status) {
-    int num_cpu_cores = tensorflow::grappler::GetNumAvailableLogicalCPUCores();
+  int num_cpu_cores = tensorflow::grappler::GetNumAvailableLogicalCPUCores();
   int num_gpus = tensorflow::grappler::GetNumAvailableGPUs();
   int timeout_s = 60 * 10;
   tensorflow::grappler::Cluster* cluster_ =
@@ -176,13 +176,13 @@ tensorflow::Status _GetOpPerformanceDataAndRunTime(
   tensorflow::Status status = cost_measure->Initialize(item);
   if (!status.ok()) return status;
 
-  tensorflow::CostGraphDef cost_graph;
+  tensorflow::RunMetadata run_metadata;
   TF_RETURN_IF_ERROR(
-      cost_measure->PredictCosts(item.graph, &cost_graph, costs));
+      cost_measure->PredictCosts(item.graph, &run_metadata, costs));
 
   if (op_performance_data) {
     *op_performance_data = tensorflow::grappler::CostGraphToOpPerformanceData(
-        cost_graph, item.graph);
+        run_metadata.cost_graph(), item.graph);
   }
   return tensorflow::Status::OK();
 }
@@ -308,7 +308,7 @@ static PyObject* TF_GetSupportedDevices(GCluster cluster, GItem item) {
 
 static double TF_EstimatePerformance(const tensorflow::NamedDevice& device) {
   tensorflow::grappler::OpLevelCostEstimator estimator;
-  tensorflow::grappler::OpLevelCostEstimator::DeviceInfo info =
+  tensorflow::grappler::DeviceInfo info =
       estimator.GetDeviceInfo(device.properties());
   return info.gigaops;
 }
@@ -320,7 +320,8 @@ static PyObject* TF_MeasureCosts(
   tensorflow::OpPerformanceList op_performance_data;
   tensorflow::StepStats step_stats;
 
-  tensorflow::grappler::MeasuringCostEstimator cost_measure(cluster.get(), 10, 0);
+  const int num_measurements = cluster->type() == "virtual" ? 1 : 10;
+  tensorflow::grappler::MeasuringCostEstimator cost_measure(cluster.get(), num_measurements, 0);
 
   tensorflow::grappler::Costs costs;
   tensorflow::Status status = _GetOpPerformanceDataAndRunTime(

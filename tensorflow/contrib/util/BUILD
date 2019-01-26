@@ -16,9 +16,12 @@ cc_library(
     srcs = ["convert_graphdef_memmapped_format_lib.cc"],
     hdrs = ["convert_graphdef_memmapped_format_lib.h"],
     deps = [
+        "//tensorflow/core:array_ops_op_lib",
         "//tensorflow/core:framework",
         "//tensorflow/core:framework_internal",
+        "//tensorflow/core:functional_ops_op_lib",
         "//tensorflow/core:lib",
+        "//tensorflow/core:nn_ops_op_lib",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:tensorflow",
         "//tensorflow/core/kernels:immutable_constant_op",
@@ -74,16 +77,4 @@ py_library(
         "//tensorflow/python:tensor_util",
         "//tensorflow/python:util",
     ],
-)
-
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
-    visibility = ["//tensorflow:__subpackages__"],
 )

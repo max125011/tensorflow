@@ -32,16 +32,24 @@ cc_library(
 
 tf_cuda_library(
     name = "stream_executor",
+    cuda_deps = ["//tensorflow/stream_executor/cuda:cuda_activation"],
     deps = [
         "//tensorflow/stream_executor",
+        "//tensorflow/stream_executor:dnn",
+        "//tensorflow/stream_executor:event",
+        "//tensorflow/stream_executor:multi_platform_manager",
+        "//tensorflow/stream_executor:scratch_allocator",
+        "//tensorflow/stream_executor/cuda:cuda_platform_id",
+        "//tensorflow/stream_executor/host:host_platform_id",
+        "//tensorflow/stream_executor/platform:dso_loader",
     ] + select({
-        "//tensorflow:using_cuda_clang": ["//tensorflow/stream_executor:cuda_platform"],
-        "//tensorflow:using_cuda_nvcc": ["//tensorflow/stream_executor:cuda_platform"],
-        "//tensorflow:using_cuda_clang_with_dynamic_build": [],
-        "//tensorflow:using_cuda_nvcc_with_dynamic_build": [],
+        "@local_config_cuda//cuda:darwin": ["IOKit"],
         "//conditions:default": [],
     }) + select({
-        "@local_config_cuda//cuda:darwin": ["IOKit"],
+        "//tensorflow:using_cuda_clang": ["//tensorflow/stream_executor/cuda:all_runtime"],
+        "//tensorflow:using_cuda_nvcc": ["//tensorflow/stream_executor/cuda:all_runtime"],
+        "//tensorflow:using_cuda_clang_with_dynamic_build": [],
+        "//tensorflow:using_cuda_nvcc_with_dynamic_build": [],
         "//conditions:default": [],
     }),
 )
@@ -49,9 +57,10 @@ tf_cuda_library(
 cc_library(
     name = "stream_executor_cuda",
     deps = [
-        "//tensorflow/stream_executor",
+        ":stream_executor_no_cuda",
+        ":cuda",
     ] + if_static(
-        ["//tensorflow/stream_executor:cuda_platform"],
+        ["//tensorflow/stream_executor/cuda:all_runtime"],
     ) + select({
         "@local_config_cuda//cuda:darwin": ["IOKit"],
         "//conditions:default": [],
@@ -62,6 +71,14 @@ cc_library(
     name = "stream_executor_no_cuda",
     deps = [
         "//tensorflow/stream_executor",
+        "//tensorflow/stream_executor:dnn",
+        "//tensorflow/stream_executor:event",
+        "//tensorflow/stream_executor:multi_platform_manager",
+        "//tensorflow/stream_executor:scratch_allocator",
+        "//tensorflow/stream_executor/cuda:cuda_platform_id",
+        "//tensorflow/stream_executor/host:host_platform",
+        "//tensorflow/stream_executor/host:host_platform_id",
+        "//tensorflow/stream_executor/platform:dso_loader",
     ],
 )
 
@@ -114,6 +131,42 @@ cc_library(
 )
 
 cc_library(
+    name = "base",
+    srcs = [],
+    copts = tf_copts(),
+)
+
+cc_library(
+    name = "port",
+    srcs = [],
+    copts = tf_copts(),
+)
+
+cc_library(
+    name = "protobuf",
+    srcs = [],
+    copts = tf_copts(),
+)
+
+cc_library(
+    name = "env",
+    srcs = [],
+    copts = tf_copts(),
+)
+
+cc_library(
+    name = "other",
+    srcs = [],
+    copts = tf_copts(),
+    deps = [
+        "@com_googlesource_code_re2//:re2",
+        "@farmhash_archive//:farmhash",
+        "@fft2d",
+        "@highwayhash//:sip_hash",
+    ],
+)
+
+cc_library(
     name = "platformlib",
     copts = tf_copts(),
     deps = [
@@ -124,8 +177,13 @@ cc_library(
         "@farmhash_archive//:farmhash",
         "@fft2d",
         "@highwayhash//:sip_hash",
-        "@png_archive//:png",
+        "@zlib_archive//:zlib",
     ],
+)
+
+cc_library(
+    name = "stacktrace",
+    srcs = [],
 )
 
 cc_library(
@@ -145,6 +203,15 @@ cc_library(
 )
 
 cc_library(
+    name = "png",
+    copts = tf_copts(),
+    deps = [
+        "@png_archive//:png",
+        "@zlib_archive//:zlib",
+    ],
+)
+
+cc_library(
     name = "protos_cc_impl",
     copts = tf_copts(),
     deps = [
@@ -158,6 +225,13 @@ cc_library(
     deps = [
         "//tensorflow/core:protos_all_cc",
     ],
+)
+
+cc_library(
+    name = "test_lite_main",
+    testonly = 1,
+    linkstatic = 1,
+    deps = [],
 )
 
 cc_library(
@@ -217,16 +291,4 @@ alias(
     name = "android_srcs",
     actual = ":mobile_srcs",
     visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
-    visibility = ["//tensorflow:__subpackages__"],
 )
